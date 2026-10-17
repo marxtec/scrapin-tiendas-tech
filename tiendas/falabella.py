@@ -10,6 +10,7 @@ from .base import a_numero, fila, log, next_data, pausa
 
 TIENDA = "falabella"
 SELENIUM_DE_RESPALDO = True
+ESPERA_CSS = "div.grid-pod"
 
 CATEGORIAS = {
     "televisores": "https://www.falabella.com.pe/falabella-pe/category/cat6370551/Televisores-Smart-TV",

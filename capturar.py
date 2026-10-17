@@ -64,7 +64,10 @@ def capturar_tienda(nombre, salida, max_paginas=None, solo=None):
     resumen = carpeta / "resumen.csv"
     marca = ahora().strftime("%Y-%m-%d_%H%M")
 
-    cliente = Cliente(selenium_de_respaldo=modulo.SELENIUM_DE_RESPALDO)
+    cliente = Cliente(
+        selenium_de_respaldo=modulo.SELENIUM_DE_RESPALDO,
+        espera_css=getattr(modulo, "ESPERA_CSS", None),
+    )
     tablas, filas_resumen, problemas = [], [], 0
     try:
         for categoria, url in modulo.CATEGORIAS.items():

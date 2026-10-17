@@ -3,7 +3,8 @@
 from .base import a_numero, fila, log, next_data, pausa
 
 TIENDA = "ripley"
-SELENIUM_DE_RESPALDO = False  # Ripley bloquea Chrome headless
+SELENIUM_DE_RESPALDO = True  # desde GitHub requests recibe 403
+ESPERA_CSS = "a.product-link"
 
 CATEGORIAS = {
     "televisores": "https://simple.ripley.com.pe/tecnologia/tv-y-cine-en-casa/televisores",

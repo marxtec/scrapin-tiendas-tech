@@ -73,16 +73,17 @@ def fila(tienda, categoria, **datos):
 class Cliente:
     """Sesión de requests con reintentos y, si hace falta, un Chrome headless de respaldo."""
 
-    def __init__(self, selenium_de_respaldo=False):
+    def __init__(self, selenium_de_respaldo=False, espera_css=None):
         self.sesion = requests.Session()
         self.sesion.headers.update({
             "User-Agent": USER_AGENT,
             "Accept-Language": "es-PE,es;q=0.9",
         })
+        # 403 no se reintenta: suele ser un bloqueo por IP y esperar no lo arregla
         reintentos = Retry(
             total=5,
             backoff_factor=3,
-            status_forcelist=[403, 429, 500, 502, 503, 504],
+            status_forcelist=[429, 500, 502, 503, 504],
             allowed_methods=["GET"],
             respect_retry_after_header=True,
         )
@@ -90,6 +91,8 @@ class Cliente:
         self.sesion.mount("https://", adaptador)
         self.sesion.mount("http://", adaptador)
         self.selenium_de_respaldo = selenium_de_respaldo
+        self.solo_chrome = False
+        self.espera_css = espera_css
         self._driver = None
 
     def get(self, url, **kwargs):
@@ -98,13 +101,24 @@ class Cliente:
         return respuesta
 
     def html(self, url):
-        """HTML de la página. Si requests falla y hay respaldo, lo intenta con Chrome."""
+        """HTML de la página. Si requests falla y hay respaldo, lo intenta con Chrome.
+
+        Tras un 403 se sigue solo con Chrome el resto de la corrida, para no gastar
+        tiempo en peticiones que la tienda va a rechazar.
+        """
+        if self.solo_chrome:
+            return self.html_chrome(url)
         try:
             return self.get(url).text
         except requests.RequestException as error:
             if not self.selenium_de_respaldo:
                 raise
-            log.warning("requests falló (%s), se usa Chrome: %s", error, url)
+            respuesta = getattr(error, "response", None)
+            if respuesta is not None and respuesta.status_code == 403:
+                log.warning("la tienda rechaza requests (403), se sigue solo con Chrome")
+                self.solo_chrome = True
+            else:
+                log.warning("requests falló (%s), se usa Chrome: %s", error, url)
             return self.html_chrome(url)
 
     def sopa(self, url):
@@ -128,6 +142,7 @@ class Cliente:
         for intento in range(3):
             try:
                 self.driver.get(url)
+                espera_css = espera_css or self.espera_css
                 if espera_css:
                     esperar_estable(self.driver, espera_css, minimo, timeout)
                 else:

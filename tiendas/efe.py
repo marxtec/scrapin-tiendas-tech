@@ -5,6 +5,7 @@ from .base import fila, log
 
 TIENDA = "efe"
 SELENIUM_DE_RESPALDO = True
+ESPERA_CSS = "li.product-item"
 
 CATEGORIAS = {
     "televisores": "https://www.efe.com.pe/tecnologia/televisores/smart-tv.html",

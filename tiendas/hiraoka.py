@@ -4,7 +4,8 @@ from . import magento
 from .base import fila, log
 
 TIENDA = "hiraoka"
-SELENIUM_DE_RESPALDO = True
+SELENIUM_DE_RESPALDO = True  # desde GitHub requests recibe 403
+ESPERA_CSS = ".product-item .price-box"
 
 CATEGORIAS = {
     "televisores": "https://hiraoka.com.pe/televisores/televisores",
