@@ -1,0 +1,130 @@
+name: Captura de precios
+
+on:
+  schedule:
+    # Horas en UTC (Lima = UTC-5). Se evitan los minutos en punto, que es cuando
+    # la cola de GitHub está más cargada y los cron se retrasan o se saltan.
+    - cron: "37 10 * * *"     # 05:37 Lima: captura diaria
+    - cron: "47 13 * * *"     # 08:47 Lima: rescate, solo tiendas que hoy fallaron o no corrieron
+    - cron: "23 22 1-9 11 *"  # 17:23 Lima, 1 al 9 de noviembre: segunda captura por Cyber Wow
+  workflow_dispatch:
+    inputs:
+      tiendas:
+        description: "Tiendas separadas por espacio, o 'todas'"
+        default: "todas"
+      max_paginas:
+        description: "Tope de páginas por categoría (vacío = completo; con tope no se guarda historial)"
+        default: ""
+
+concurrency:
+  group: captura
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  preparar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tiendas: ${{ steps.elegir.outputs.tiendas }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            /*.py
+            /tiendas/
+            /requirements.txt
+            /data/*/resumen.csv
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - id: elegir
+        env:
+          EVENTO: ${{ github.event_name }}
+          CRON: ${{ github.event.schedule }}
+          PEDIDAS: ${{ inputs.tiendas }}
+        run: |
+          if [ "$EVENTO" = "workflow_dispatch" ]; then
+            lista=$(python pendientes.py "$PEDIDAS")
+          elif [ "$CRON" = "47 13 * * *" ]; then
+            lista=$(python pendientes.py todas --solo-faltantes)
+          else
+            lista=$(python pendientes.py todas)
+          fi
+          echo "tiendas=$lista" >> "$GITHUB_OUTPUT"
+          echo "Tiendas a capturar: $lista"
+
+  capturar:
+    needs: preparar
+    if: needs.preparar.outputs.tiendas != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        tienda: ${{ fromJSON(needs.preparar.outputs.tiendas) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            /*.py
+            /tiendas/
+            /requirements.txt
+            /data/${{ matrix.tienda }}/resumen.csv
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Capturar ${{ matrix.tienda }}
+        env:
+          TIENDA: ${{ matrix.tienda }}
+          MAX_PAGINAS: ${{ inputs.max_paginas }}
+        run: |
+          if [ -n "$MAX_PAGINAS" ]; then
+            python capturar.py "$TIENDA" --max-paginas "$MAX_PAGINAS"
+          else
+            python capturar.py "$TIENDA"
+          fi
+      - name: Subir resultado aunque haya fallado una parte
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.tienda }}
+          path: data/${{ matrix.tienda }}/
+          if-no-files-found: warn
+          retention-days: 14
+
+  guardar:
+    needs: capturar
+    if: always() && needs.capturar.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: data/
+      - name: Commit de los datos
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "No hay datos nuevos"
+            exit 0
+          fi
+          git commit -m "Captura $(TZ=America/Lima date '+%Y-%m-%d %H:%M')"
+          for intento in 1 2 3 4 5; do
+            git pull --rebase --quiet && git push && exit 0
+            echo "push falló, reintento $intento"
+            sleep $((intento * 15))
+          done
+          exit 1
