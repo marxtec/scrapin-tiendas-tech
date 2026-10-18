@@ -2,3 +2,6 @@ fecha_hora,categoria,productos,anterior,segundos,estado,detalle
 2026-10-17_1014,televisores,101,,182,ok,
 2026-10-17_1014,celulares,351,,251,ok,
 2026-10-17_1014,laptops,254,,216,ok,
+2026-10-18_0907,televisores,100,101,184,ok,
+2026-10-18_0907,celulares,354,351,245,ok,
+2026-10-18_0907,laptops,252,254,220,ok,
