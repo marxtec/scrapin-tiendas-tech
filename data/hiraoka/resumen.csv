@@ -29,3 +29,8 @@ fecha_hora,categoria,productos,anterior,segundos,estado,detalle
 2026-10-21_1033,laptops,0,72,172,error,0 productos
 2026-10-21_1033,refrigeradoras,0,109,172,error,0 productos
 2026-10-21_1033,lavadoras,0,55,172,error,0 productos
+2026-10-21_1316,televisores,120,119,99,ok,
+2026-10-21_1316,celulares,145,142,100,ok,
+2026-10-21_1316,laptops,71,72,75,ok,
+2026-10-21_1316,refrigeradoras,110,109,90,ok,
+2026-10-21_1316,lavadoras,55,55,66,ok,
