@@ -34,3 +34,8 @@ fecha_hora,categoria,productos,anterior,segundos,estado,detalle
 2026-10-22_1033,laptops,0,341,173,error,0 productos
 2026-10-22_1033,refrigeradoras,0,333,173,error,0 productos
 2026-10-22_1033,lavadoras,0,225,173,error,0 productos
+2026-10-22_1310,televisores,375,376,53,ok,
+2026-10-22_1310,celulares,2150,2171,332,ok,
+2026-10-22_1310,laptops,338,341,49,ok,
+2026-10-22_1310,refrigeradoras,334,333,52,ok,
+2026-10-22_1310,lavadoras,229,225,37,ok,
