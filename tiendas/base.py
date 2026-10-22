@@ -86,6 +86,7 @@ class Cliente:
             status_forcelist=[429, 500, 502, 503, 504],
             allowed_methods=["GET"],
             respect_retry_after_header=True,
+            raise_on_status=False,  # al agotar reintentos se devuelve la respuesta, para poder registrarla
         )
         adaptador = HTTPAdapter(max_retries=reintentos)
         self.sesion.mount("https://", adaptador)
@@ -97,6 +98,8 @@ class Cliente:
 
     def get(self, url, **kwargs):
         respuesta = self.sesion.get(url, timeout=(15, 60), **kwargs)
+        if respuesta.status_code >= 400:
+            log.warning("HTTP %s en %s | %s", respuesta.status_code, url, resumen_html(respuesta.text))
         respuesta.raise_for_status()
         return respuesta
 
@@ -144,7 +147,10 @@ class Cliente:
                 self.driver.get(url)
                 espera_css = espera_css or self.espera_css
                 if espera_css:
-                    esperar_estable(self.driver, espera_css, minimo, timeout)
+                    cantidad = esperar_estable(self.driver, espera_css, minimo, timeout)
+                    if cantidad == 0:
+                        log.warning("Chrome no encontró '%s' en %s | %s", espera_css, url,
+                                    resumen_html(self.driver.page_source))
                 else:
                     time.sleep(5)
                 return self.driver.page_source
@@ -199,6 +205,19 @@ def esperar_estable(driver, css, minimo=1, timeout=40):
         anterior = cantidad
         time.sleep(1.5)
     return max(anterior, 0)
+
+
+def resumen_html(html, largo=300):
+    """Título y primer texto visible de una página, para saber qué mostró la tienda (bloqueo, error, etc.)."""
+    try:
+        sopa = BeautifulSoup(html or "", "html.parser")
+        for basura in sopa(["script", "style", "noscript"]):
+            basura.decompose()
+        titulo = sopa.title.get_text(strip=True) if sopa.title else ""
+        texto = " ".join(sopa.get_text(" ", strip=True).split())
+        return f"título: {titulo[:100]!r} | texto: {texto[:largo]!r} | {len(html or '')} bytes"
+    except Exception as error:
+        return f"no se pudo resumir la página: {error}"
 
 
 def next_data(sopa):
