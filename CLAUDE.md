@@ -27,16 +27,17 @@ Columnas: tienda, sku, titulo, marca, vendedor, categoria, precio_referencia, pr
 
 | tienda | método | notas |
 |---|---|---|
-| Falabella | requests + `__NEXT_DATA__` (48/página) | El HTML con requests trae 28 de 48, el JSON trae los 48. Tope de 200 páginas: lo que sobra se completa con `sortBy=derived.price.search%2Cdesc`. sku = productId; vendedor = "Por " + sellerName. ~34-40 min |
-| Ripley | requests + HTML; vendedor de `__NEXT_DATA__` | **Bloquea las IP de GitHub** (403 con requests, 0 productos con Chrome). Desde la laptop funciona. |
+| Falabella | requests + `__NEXT_DATA__` (48/página) | El HTML con requests trae 28 de 48, el JSON trae los 48. Dos recorridos: ascendente y descendente por precio (ver hallazgos). Tope de 200 páginas por orden. sku = productId; vendedor = "Por " + sellerName. ~85 min desde el 02/11 (antes ~40) |
+| Ripley | requests + HTML; vendedor de `__NEXT_DATA__` | **Bloquea las IP de GitHub** (403 con requests, 0 productos con Chrome). Desde la laptop funciona: el dueño corre el notebook 05 a mano. |
 | Oechsle | API VTEX `/api/catalog_system/pub/products/search/<ruta>` con `fq=isAvailablePerSalesChannel_1:1` | 50 por llamada, tope 2500 → resto con OrderByPriceDESC. Precio Oh! = Price − `PromotionalPriceTableItemsDiscount` del teaser con condición `PaymentMethodId`. Vendedor en minúsculas. ~5 min |
 | Coolbox | Selenium (48/página) con API VTEX de respaldo si Chrome trae <90 % | El tercer precio (`badgePriceContainer`) no está en ninguna API. sku = slug. ~11 min |
-| Efe | requests + HTML Magento, `product_list_limit=32` | ~9 min. **Desde el 21/10 responde 503 a GitHub** (ver estado). |
-| Hiraoka | requests + HTML Magento (20/página) | Desde GitHub da 403 → el Cliente pasa a Chrome para toda la corrida. ~8 min. Claude no debe hacer peticiones a Hiraoka por su cuenta (su robots.txt bloquea a Claude); el dueño tiene autorización de la tienda y corre él. |
+| Efe | requests + HTML Magento, `product_list_limit=32` | ~9 min. **Bloquea las IP de GitHub desde el 30/10**: `426 Blocked` / `Error 54113` del CDN (Varnish), también con Chrome. Desde la laptop funciona: el dueño corre el notebook 08 a mano. |
+| Hiraoka | requests + HTML Magento (20/página) | **Corre automática en GitHub** y funciona todos los días (~7 min, ~500 productos). requests recibe 403 (`Error 54113`, el mismo CDN que bloquea a Efe) → el Cliente pasa a Chrome y así entra. Riesgo: si endurecen el bloqueo como en Efe, caería igual. Claude no hace peticiones directas a hiraoka.com.pe (su robots.txt bloquea a Claude): se revisa por los logs de Actions y `data/hiraoka/`. |
 
-Todas ordenan por precio para paginación estable y deduplican por sku dentro de la categoría.
+Todas ordenan por precio y deduplican por sku dentro de la categoría. Magento (Efe/Hiraoka) y Coolbox paran en la primera página incompleta (es la última) en vez de pedir una vacía.
 
 Hallazgos útiles:
+- **El orden por precio no es estable entre peticiones** (productos con el mismo precio cambian de página). En Falabella, solo ascendente traía 94-96 % del total que reporta la tienda (ej. 01/11 televisores 11.027 de 11.768) y el chequeo contra la corrida anterior no lo detectaba. Prueba del 01/11 en lavadoras: ascendente 96,6 %, ascendente + descendente 99,8 %. Desde el 02/11 se hacen los dos recorridos (el descendente para cuando ya están todos).
 - En Oechsle los productos "ajenos" (fundas, mouse, riego) están mal categorizados en el propio catálogo de la tienda (ej. mouse en `/Tecnologia/Televisores/TV Hisense/`); no son anuncios. En Efe, "refrigeradoras" incluye ~165 licuadoras. Ripley también mezcla accesorios. Se capturan tal cual; se filtran en el análisis.
 - Precios de Falabella vienen como lista de strings ("1,599", "199.90"); `a_numero` toma el primero.
 
@@ -45,40 +46,37 @@ Hallazgos útiles:
 - Retry de urllib3 (5, backoff 3 s) para 429/5xx; 403 no se reintenta. Con `raise_on_status=False` la última respuesta se registra.
 - Tras un 403, el Cliente sigue solo con Chrome (`solo_chrome`).
 - Diagnóstico (agregado el 22/10): cada HTTP ≥ 400 y cada página donde Chrome no encuentra `ESPERA_CSS` deja en el log `título | texto visible | bytes` de lo que mostró la tienda. Sirve para saber si es bloqueo (WAF/captcha) o caída.
-- Cada categoría se reintenta una vez (espera 30 s); una que falla no detiene a las demás. Estado `alerta` si trae < 60 % de la captura anterior.
+- Cada categoría se reintenta una vez (espera 30 s); una que falla no detiene a las demás.
+- Falabella: una página sin `__NEXT_DATA__` se reintenta 3 veces; si sigue fallando se salta y se sigue (5 seguidas cortan la categoría), en vez de perder la categoría entera.
+- Estado `alerta` (datos guardados igual, job en rojo) si: trae < 80 % de la captura anterior; trae < 90 % del total que reporta la tienda (`cliente.esperado`, lo llenan Falabella, Oechsle y Coolbox); > 10 % sin precio de oferta; > 5 % sin título. Calibrado con 17/10-01/11: peor caída normal 13 %, peor categoría 4 % sin precio (Efe celulares).
 - Códigos de salida de capturar.py: 0 ok, 1 alguna categoría con error/alerta, 2 cero productos.
-- Workflow: un job por tienda (fail-fast false, timeout 150 min), artifact siempre, un job `guardar` que hace un solo commit con reintentos de push. `concurrency: captura`.
+- Workflow: un job por tienda (fail-fast false, timeout 240 min por el doble recorrido de Falabella), artifact siempre, un job `guardar` que hace un solo commit con reintentos de push. `concurrency: captura`.
 
 ## Horarios (UTC; Lima = UTC-5)
 
 - `37 10 * * *` → 05:37 Lima, captura diaria.
 - `47 13 * * *` → 08:47 Lima, rescate: solo tiendas sin las 5 categorías ok hoy (`pendientes.py --solo-faltantes`).
-- `23 22 1-9 11 *` → 17:23 Lima del 1 al 9 de noviembre, segunda captura por Cyber Wow (ajustar si cambian las fechas).
+- `23 22 1-9 11 *` → 17:23 Lima del 1 al 9 de noviembre, segunda captura por Cyber Wow. Fechas oficiales confirmadas: Cyber Wow del 2 al 5/11/2026 (00:00-23:59); el 1 y del 6 al 9 quedan como base de comparación.
 
-GitHub retrasa mucho los cron: entre el 18 y el 21/10 la captura de 05:37 arrancó realmente entre 09:00 y 12:00 Lima, y el rescate 2-3 h después. La hora real queda en `timestamp` y en el nombre del archivo.
+GitHub retrasa mucho los cron: entre el 18 y el 21/10 la captura de 05:37 arrancó realmente entre 09:00 y 12:00 Lima, y el rescate 2-3 h después; el 01/11 la de 05:37 arrancó 11:53 y la de 17:23 a las 20:36. La hora real queda en `timestamp` y en el nombre del archivo.
 
-## Estado al 21/10/2026
+## Estado al 01/11/2026
 
-Productos con estado ok por día:
+Cobertura diaria combinando GitHub (`data/`) y los CSV manuales de `../validador_ofertas/notebooks`:
 
-| tienda | 17 | 18 | 19 | 20 | 21 |
-|---|---|---|---|---|---|
-| falabella | 33.358 | 33.611 | 33.727 | 33.721 | 32.707 |
-| oechsle | 7.820 | 7.809 | 7.831 | 7.791 | 7.875 |
-| coolbox | 706 | 706 | 710 | 713 | 726 |
-| hiraoka | 1.012 (dos corridas de prueba) | 510 | 500 | 497 | 501 (salió en el rescate) |
-| efe | 3.492 | 3.481 | 3.467 | 3.446 | **0** |
-| ripley | 0 | 0 | 0 | 0 | 0 |
+- **Falabella, Oechsle, Coolbox, Hiraoka** (GitHub): todos los días del 17/10 al 01/11 con todas sus categorías ok. Coolbox tiene 3 categorías a propósito (no vende refrigeradoras ni lavadoras).
+- **Efe**: GitHub ok del 17/10 al 29/10 salvo el 21/10; el 21/10 y del 30/10 en adelante, notebook 08 manual (`efe_AAAA-MM-DD.csv`). Sin huecos desde el 16/10.
+- **Ripley**: solo manual (notebook 05). Faltan el **20/10 y el 27/10** (no existen en ningún lado, verificado el 01/11) y el 31/10 vino **sin celulares**.
+- Primer día con las 6 tiendas completas: **17/10** (el 16/10 hay 5, falta Falabella).
 
-- Todas las corridas salen "failure" porque Ripley siempre falla. El dueño lo aceptó: prefiere recibir el correo de fallo y correr el notebook 05 de Ripley en local. Ripley sigue en la matriz a propósito.
-- 21/10: Efe devolvió 503 a todas las páginas desde GitHub (también con Chrome) en la captura y en el rescate. Desde la laptop respondía normal ese mismo día → probable bloqueo de IP de GitHub. Se recomendó correr el notebook 08 en local ese día.
-- 21/10: Hiraoka falló en la primera corrida (Chrome sin productos) y salió bien en el rescate: fallo transitorio.
+Decisiones del dueño:
+- Ripley y Efe siguen en la matriz de GitHub aunque fallen siempre: el correo de "failure" le sirve de recordatorio y las corre a mano. **No automatizarlas en la laptop** (lo pidió explícitamente el 01/11).
+- Desde el 28/10, Ripley tiene ~1.300 laptops del vendedor de marketplace "UNALUKA INTERNACIONAL": son reales, no un error; conviene separar marketplace en el análisis.
 
 ## Pendiente
 
-1. Revisar los logs de Efe con el diagnóstico nuevo para ver qué página devuelve (bloqueo vs caída). Si sigue fallando 2-3 días, tratarla como Ripley (correr en local) o buscar alternativa.
-2. Ripley y, si aplica, Efe: posible runner self-hosted en la laptop solo para esas tiendas (requiere la laptop prendida a la hora de la captura). Por ahora el dueño corre los notebooks a mano.
-3. Confirmar fechas del Cyber Wow 2026 y ajustar el tercer cron.
+1. Primera corrida con el doble recorrido de Falabella (02/11): confirmar que llega a ~99 % del total en todas las categorías y que dura < 2 h.
+2. Vigilar Hiraoka: mismo CDN que bloqueó a Efe.
 
 ## Comandos útiles
 

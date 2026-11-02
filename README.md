@@ -38,7 +38,7 @@ Si en un día hay dos capturas (la de rescate o la segunda del Cyber Wow), usar 
 
 | tienda | método | por qué |
 |---|---|---|
-| Falabella | requests + JSON `__NEXT_DATA__` de la página | el HTML solo trae 28 de 48 productos, pero el JSON de la página trae los 48. Falabella corta en 200 páginas: lo que falta se completa pidiendo el orden inverso |
+| Falabella | requests + JSON `__NEXT_DATA__` de la página | el HTML solo trae 28 de 48 productos, pero el JSON de la página trae los 48. Se recorre de menor a mayor precio y luego de mayor a menor: el orden no es estable entre páginas (con un solo sentido se pierde ~4-6 %) y Falabella corta en 200 páginas |
 | Ripley | requests + HTML, vendedor desde `__NEXT_DATA__` | bloquea Chrome headless |
 | Oechsle | API pública de catálogo VTEX | más rápida y completa que el navegador; el precio Oh! viene como promoción por medio de pago |
 | Coolbox | Selenium, con la API VTEX de respaldo | el tercer precio solo aparece en la página ya cargada |
@@ -54,7 +54,8 @@ Todas piden los listados ordenados por precio, para que la paginación sea estab
 - Una categoría que falla se reintenta una vez y no detiene a las demás. Lo que sí salió se guarda igual.
 - Un producto con datos raros se salta sin romper la página.
 - Deduplicado por `sku` dentro de cada categoría.
-- Alerta si una categoría trae menos del 60 % de lo que trajo la captura anterior (posible bloqueo o cambio en la web). Queda marcada como `alerta` en `resumen.csv` y el job sale en rojo.
+- Una página de Falabella que falla se reintenta y, si no sale, se salta sin perder la categoría.
+- Alerta si una categoría trae menos del 80 % de la captura anterior, menos del 90 % del total que informa la tienda (Falabella, Oechsle, Coolbox), o más del 10 % de productos sin precio. Queda marcada como `alerta` en `resumen.csv` con el motivo, y el job sale en rojo.
 - En GitHub cada tienda corre en su propio job: si una se cae, las otras siguen. Los datos se suben aunque el job falle y se guardan todos en un solo commit al final, con reintentos de push.
 
 ## Horarios
@@ -69,7 +70,7 @@ En UTC dentro de `.github/workflows/captura.yml` (Lima = UTC-5):
 
 Se usan minutos "raros" porque en el minuto 00 de cada hora la cola de GitHub está más cargada y los cron se retrasan o se saltan. La madrugada además es tráfico bajo en las tiendas y los precios del día ya están puestos. Si cambian las fechas del Cyber Wow, editar la tercera línea.
 
-Duración aproximada por tienda: Falabella 35-45 min, Ripley ~15 min, Efe ~8 min, Oechsle ~7 min, Coolbox ~8 min, Hiraoka ~3 min. Corren en paralelo.
+Duración aproximada por tienda: Falabella ~85 min, Oechsle ~7 min, Coolbox ~6 min, Hiraoka ~6 min. Corren en paralelo. Ripley y Efe bloquean las IP de GitHub y se capturan desde una máquina propia.
 
 ## Correr a mano
 

@@ -52,6 +52,7 @@ def leer_pagina(html, categoria):
 
 def con_chrome(cliente, categoria, ruta, max_paginas):
     vistos = {}
+    tamano = None  # productos por página, tomado de la primera
     for pagina in range(1, (max_paginas or 200) + 1):
         filas = []
         for intento in range(3):
@@ -69,6 +70,12 @@ def con_chrome(cliente, categoria, ruta, max_paginas):
         for f in nuevos:
             vistos[f["sku"]] = f
         log.info("%s %s: %s productos (llevamos %s)", categoria, pagina, len(filas), len(vistos))
+        tamano = tamano or len(filas)
+        # página incompleta = última: no se abre la siguiente, que viene vacía y hacía
+        # esperar a Chrome 3 veces (~2-3 min por categoría). Si una página quedó corta por
+        # carga parcial, el respaldo con la API completa lo que falte.
+        if len(filas) < tamano:
+            break
         pausa()
     return list(vistos.values())
 
@@ -85,6 +92,7 @@ def capturar(cliente, categoria, ruta, max_paginas=None):
         cliente,
         f"{URL_BASE}/api/catalog_system/pub/products/search/{ruta}?_from=0&_to=0&fq=isAvailablePerSalesChannel_1:1",
     ) or 0
+    cliente.esperado = total or None
     if max_paginas is None and len(filas) < 0.9 * total:
         log.warning("%s: Chrome trajo %s de %s, se completa con la API", categoria, len(filas), total)
         vistos = {f["sku"]: f for f in filas}

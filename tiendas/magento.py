@@ -13,6 +13,7 @@ def recorrer(cliente, url, leer_pagina, categoria, por_pagina=None, max_paginas=
     """Pide páginas ordenadas por precio hasta que una no traiga productos nuevos."""
     vistos = {}
     limite = f"&product_list_limit={por_pagina}" if por_pagina else ""
+    tamano = None  # productos por página, tomado de la primera
     for pagina in range(1, (max_paginas or 300) + 1):
         sopa = cliente.sopa(f"{url}?product_list_order=price&product_list_dir=asc{limite}&p={pagina}")
         filas = leer_pagina(sopa, categoria)
@@ -22,5 +23,10 @@ def recorrer(cliente, url, leer_pagina, categoria, por_pagina=None, max_paginas=
         for f in nuevos:
             vistos[f["sku"]] = f
         log.info("%s %s: %s productos (llevamos %s)", categoria, pagina, len(filas), len(vistos))
+        tamano = tamano or len(filas)
+        # una página incompleta es la última: no se pide la siguiente (vacía). Ahorra una
+        # petición por categoría y, con Chrome, ~40 s de espera inútil.
+        if len(filas) < tamano:
+            break
         pausa()
     return list(vistos.values())

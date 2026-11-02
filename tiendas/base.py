@@ -95,6 +95,9 @@ class Cliente:
         self.solo_chrome = False
         self.espera_css = espera_css
         self._driver = None
+        # total de productos que la tienda dice tener en la categoría en curso (si lo informa);
+        # lo llenan falabella/vtex/coolbox y capturar.py lo usa para detectar capturas incompletas
+        self.esperado = None
 
     def get(self, url, **kwargs):
         respuesta = self.sesion.get(url, timeout=(15, 60), **kwargs)

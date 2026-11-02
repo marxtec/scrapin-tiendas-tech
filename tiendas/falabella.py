@@ -34,11 +34,17 @@ def precio(producto, *tipos):
     return None
 
 
-def leer_pagina(cliente, url, orden, pagina, categoria):
-    sopa = cliente.sopa(f"{url}?sortBy={ORDEN[orden]}&page={pagina}")
-    datos = next_data(sopa)
-    if datos is None:
-        raise ValueError("la página no trae __NEXT_DATA__")
+def leer_pagina(cliente, url, orden, pagina, categoria, intentos=3):
+    """Lee una página; si viene sin __NEXT_DATA__ (página de error o de espera) la reintenta."""
+    for intento in range(1, intentos + 1):
+        sopa = cliente.sopa(f"{url}?sortBy={ORDEN[orden]}&page={pagina}")
+        datos = next_data(sopa)
+        if datos is not None:
+            break
+        log.warning("%s %s %s: sin __NEXT_DATA__ (intento %s)", categoria, orden, pagina, intento)
+        pausa(5 * intento, 10 * intento)
+    else:
+        raise ValueError(f"la página {pagina} ({orden}) no trae __NEXT_DATA__")
     props = datos.get("props", {}).get("pageProps", {})
     filas = []
     for p in props.get("results") or []:
@@ -64,34 +70,52 @@ def leer_pagina(cliente, url, orden, pagina, categoria):
     return filas, total
 
 
-def capturar(cliente, categoria, url, max_paginas=None):
-    vistos = {}
-    limite = min(max_paginas or MAX_PAGINAS_FALABELLA, MAX_PAGINAS_FALABELLA)
+FALLAS_SEGUIDAS_MAX = 5  # páginas seguidas que fallan = bloqueo o caída: se corta la categoría
 
-    total = None
-    for pagina in range(1, limite + 1):
-        filas, conteo = leer_pagina(cliente, url, "asc", pagina, categoria)
+
+def recorrer(cliente, url, orden, paginas, categoria, vistos, total):
+    """Recorre `paginas` páginas en un orden. Una página que falla se salta (queda en el log);
+    varias seguidas cortan la categoría. Para cuando ya se tienen todos los productos."""
+    fallas_seguidas = 0
+    for pagina in range(1, paginas + 1):
+        try:
+            filas, conteo = leer_pagina(cliente, url, orden, pagina, categoria)
+        except Exception as error:
+            fallas_seguidas += 1
+            log.warning("%s %s %s: se salta la página (%s)", categoria, orden, pagina, error)
+            if fallas_seguidas >= FALLAS_SEGUIDAS_MAX:
+                raise RuntimeError(f"{fallas_seguidas} páginas seguidas fallaron en {orden}") from error
+            continue
+        fallas_seguidas = 0
         total = total or conteo
         if not filas:
             break
         for f in filas:
             vistos.setdefault(f["sku"], f)
-        log.info("%s asc %s: %s productos (llevamos %s de %s)", categoria, pagina, len(filas), len(vistos), total)
-        if total and pagina >= math.ceil(total / 48):
+        log.info("%s %s %s: %s productos (llevamos %s de %s)", categoria, orden, pagina, len(filas), len(vistos), total)
+        if total and (len(vistos) >= total or pagina >= math.ceil(total / 48)):
             break
         pausa()
+    return total
 
-    # cola de productos caros que no entra en las 200 páginas
-    if max_paginas is None and total and total > MAX_PAGINAS_FALABELLA * 48:
-        faltan = total - MAX_PAGINAS_FALABELLA * 48
-        paginas_desc = min(math.ceil(faltan / 48) + 2, MAX_PAGINAS_FALABELLA)
-        for pagina in range(1, paginas_desc + 1):
-            filas, _ = leer_pagina(cliente, url, "desc", pagina, categoria)
-            if not filas:
-                break
-            for f in filas:
-                vistos.setdefault(f["sku"], f)
-            log.info("%s desc %s: %s productos (llevamos %s de %s)", categoria, pagina, len(filas), len(vistos), total)
-            pausa()
+
+def capturar(cliente, categoria, url, max_paginas=None):
+    """Recorre de menor a mayor precio y luego de mayor a menor.
+
+    El orden por precio no es estable entre peticiones: los productos con el mismo precio
+    cambian de página y unos salen dos veces y otros ninguna (probado el 01/11/2026 en
+    lavadoras: solo ascendente 96,6 % del total, ascendente + descendente 99,8 %). El
+    recorrido descendente recupera los que faltan y además cubre la cola de productos caros
+    que no entra en las 200 páginas que deja ver Falabella.
+    """
+    vistos = {}
+    limite = min(max_paginas or MAX_PAGINAS_FALABELLA, MAX_PAGINAS_FALABELLA)
+    total = recorrer(cliente, url, "asc", limite, categoria, vistos, None)
+    cliente.esperado = total
+
+    if max_paginas is None and total and len(vistos) < total:
+        paginas_desc = min(math.ceil(total / 48), MAX_PAGINAS_FALABELLA)
+        recorrer(cliente, url, "desc", paginas_desc, categoria, vistos, total)
+        log.info("%s: %s de %s tras el recorrido descendente", categoria, len(vistos), total)
 
     return list(vistos.values())

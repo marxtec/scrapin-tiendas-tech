@@ -92,6 +92,7 @@ def capturar(cliente, tienda, categoria, url_base, ruta, sku_desde="productId",
     filtro = "&fq=isAvailablePerSalesChannel_1:1" if solo_disponibles else ""
     total = total_de(cliente, f"{api}?_from=0&_to=0{filtro}") or 0
     log.info("%s: la API reporta %s productos", categoria, total)
+    cliente.esperado = total or None
 
     vistos = {}
     llamadas = 0

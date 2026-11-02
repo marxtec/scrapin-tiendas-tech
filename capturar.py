@@ -25,7 +25,13 @@ from tiendas import TIENDAS
 from tiendas.base import COLUMNAS, Cliente, ahora, log
 
 INTENTOS_POR_CATEGORIA = 2
-CAIDA_SOSPECHOSA = 0.6  # menos del 60 % de la captura anterior
+# Umbrales de "alerta" (los datos se guardan igual; el job sale en rojo para revisarlo).
+# Calibrados con el historial 17/10-01/11: la mayor caída normal entre corridas fue de 13 %
+# y Falabella/Oechsle/Coolbox traen 99-100 % de lo que reporta la tienda.
+CAIDA_SOSPECHOSA = 0.8   # menos del 80 % de la captura anterior
+COBERTURA_MINIMA = 0.9   # menos del 90 % del total que reporta la tienda
+MAX_SIN_PRECIO = 0.1     # más del 10 % de productos sin precio de oferta
+MAX_SIN_TITULO = 0.05
 
 CAMPOS_RESUMEN = ["fecha_hora", "categoria", "productos", "anterior", "segundos", "estado", "detalle"]
 
@@ -41,9 +47,28 @@ def ultima_cantidad(resumen, categoria):
     return ultima
 
 
+def problemas_de_calidad(filas, anterior, esperado, completa):
+    """Motivos para marcar la categoría como 'alerta' (lista vacía si está bien)."""
+    motivos = []
+    n = len(filas)
+    if completa and anterior and n < CAIDA_SOSPECHOSA * anterior:
+        motivos.append(f"cayó de {anterior} a {n}")
+    if completa and esperado and n < COBERTURA_MINIMA * esperado:
+        motivos.append(f"trajo {n} de {esperado} que reporta la tienda ({n / esperado:.0%})")
+    if n:
+        sin_precio = sum(f["precio_oferta"] is None for f in filas) / n
+        sin_titulo = sum(not f["titulo"] for f in filas) / n
+        if sin_precio > MAX_SIN_PRECIO:
+            motivos.append(f"{sin_precio:.0%} sin precio de oferta")
+        if sin_titulo > MAX_SIN_TITULO:
+            motivos.append(f"{sin_titulo:.0%} sin título")
+    return motivos
+
+
 def capturar_categoria(modulo, cliente, categoria, url, max_paginas):
     error = None
     for intento in range(1, INTENTOS_POR_CATEGORIA + 1):
+        cliente.esperado = None
         try:
             filas = modulo.capturar(cliente, categoria, url, max_paginas=max_paginas)
             if filas:
@@ -78,12 +103,14 @@ def capturar_tienda(nombre, salida, max_paginas=None, solo=None):
             segundos = round(time.time() - inicio)
             anterior = ultima_cantidad(resumen, categoria)
 
+            motivos = [] if error else problemas_de_calidad(filas, anterior, cliente.esperado, max_paginas is None)
             if error:
                 estado, detalle = "error", error[:300]
                 problemas += 1
-            elif max_paginas is None and anterior and len(filas) < CAIDA_SOSPECHOSA * anterior:
-                estado, detalle = "alerta", f"cayó de {anterior} a {len(filas)}"
+            elif motivos:
+                estado, detalle = "alerta", "; ".join(motivos)[:300]
                 problemas += 1
+                log.warning("%s/%s en alerta: %s", nombre, categoria, detalle)
             else:
                 estado, detalle = "ok", ""
 
