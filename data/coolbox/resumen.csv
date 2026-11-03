@@ -56,3 +56,6 @@ fecha_hora,categoria,productos,anterior,segundos,estado,detalle
 2026-11-02_2231,televisores,105,106,38,ok,
 2026-11-02_2231,celulares,362,362,105,ok,
 2026-11-02_2231,laptops,274,271,75,ok,
+2026-11-03_1300,televisores,104,105,35,ok,
+2026-11-03_1300,celulares,360,362,101,ok,
+2026-11-03_1300,laptops,274,274,75,ok,
