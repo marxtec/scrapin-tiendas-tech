@@ -114,3 +114,8 @@ fecha_hora,categoria,productos,anterior,segundos,estado,detalle
 2026-11-03_2128,laptops,82,79,35,ok,
 2026-11-03_2128,refrigeradoras,109,110,41,ok,
 2026-11-03_2128,lavadoras,55,55,20,ok,
+2026-11-04_1312,televisores,39,119,26,alerta,cayó de 119 a 39
+2026-11-04_1312,celulares,133,136,51,ok,
+2026-11-04_1312,laptops,80,82,73,ok,
+2026-11-04_1312,refrigeradoras,107,109,40,ok,
+2026-11-04_1312,lavadoras,55,55,21,ok,
